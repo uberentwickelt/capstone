@@ -1,0 +1,30 @@
+<Files ".htaccess">
+  Require all denied
+</Files>
+<Files ".stfolder">
+  Require all denied
+</Files>
+<Files "/includes/mysql.php">
+  Require all denied
+</Files>
+<Files "create_database.sql">
+  Require all denied
+</Files>
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME}\.php -f
+  RewriteRule ^(.*)$ $1.php
+</IfModule>
+<If "! %{REQUEST_URI} =~ m#^/api#">
+<If "! %{REQUEST_URI} =~ m#^/daemon#">
+<If "! %{REQUEST_URI} =~ m#^/lib#">
+<If "! %{REQUEST_URI} =~ m#^/css#">
+<If "! %{REQUEST_URI} =~ m#^/js#">
+  php_value auto_prepend_file "/var/www/vote/includes/open.php"
+  php_value auto_append_file "/var/www/vote/includes/close.php"
+</If>
+</If>
+</If>
+</If>
+</If>

@@ -1,0 +1,19 @@
+#!/bin/sh 
+
+. /etc/rc.subr 
+
+name="voted" 
+rcvar="voted_enable"
+
+start_cmd="${name}_start" 
+stop_cmd=":" 
+
+load_rc_config $name 
+: ${voted_enable:=no}
+: ${voted_msg:="Nothing started."}
+
+voted_start() {
+	echo "$voted_msg"
+}
+
+run_rc_command "$1"

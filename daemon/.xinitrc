@@ -1,0 +1,1 @@
+exec /usr/local/bin/firefox --kiosk --sync --safe-mode --no-remote --disable-pinch ${SITE}
