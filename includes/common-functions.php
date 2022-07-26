@@ -220,6 +220,39 @@ function get_machine_publicKey($mid) {
   return false;
 }
 
+function get_browser_session($bid) {
+  // Browser ID is machine ID, representing the browser in the machine
+  $uuid = get_uuid();
+  $ip = get_ip();
+  $bid = sanitize_input($bid);
+  $agent = get_user_agent();
+  $sql = 'SELECT bin_to_uuid(session.id) AS sid,bin_to_uuid(session.browser_id) AS bid,machine.friendly_id AS did FROM session JOIN machine ON machine.id = session.browser_id WHERE session.browser_id = uuid_to_bin(?) AND sysdate() < session.expire';
+  $r = get_sql($sql,array(array('s',$bid)));
+  if (!empty($r)) {
+    if ($r->num_rows === 1) {
+      return $r->fetch_assoc();
+    }
+    // Delete all sessions if there are more than one within the timeframe
+    if ($r->num_rows > 1) {
+      $s2 = 'DELETE FROM session WHERE browser_id = uuid_to_bin(?)';
+      $r2 = set_sql($sql,array(array('s',$bid)));
+      if ((bool) $r2) {
+        // Deleted all sessions for machine, call self to get a new session.
+        get_machine_session($bid);
+      }  
+    }
+  } else {
+    // Has zero rows or an error
+    $s2 = 'INSERT INTO session (id,browser_id,ip_address,user_agent) VALUES (uuid_to_bin(?),uuid_to_bin(?),?,?)';
+    $r2 = set_sql($s2,array(array('s',$uuid),array('s',$bid),array('s',$ip),array('s',$agent)));
+    if ((bool) $r2) {
+      // Inserted new session successfully, call self to get the session.
+      get_machine_session($bid);
+    }
+  }
+  return false;
+}
+
 function get_machine_session($mid) {
   $uuid = get_uuid();
   $ip = get_ip();
@@ -373,61 +406,66 @@ function session_delete($sid,$uid) {
   return false;
 }
 
-function session_update($sid,$uid) {
-  // Update session in the db
-  global $conn;
-
-  $sql = 'update session set expire=ADDDATE(sysdate(),INTERVAL (SELECT value from params where key=\'SESSION_INACTIVITY_LENGTH\') MINUTE) where id=uuid_to_bin(?) and user_id=uuid_to_bin(?)';
-  try {
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss",$sid,$uid);
-    if ($stmt->execute()) {
-      return 'UPDATED';
-    } else {
-      return 'INVALID';
-    }
-  } catch (Exception $e) {
-    return 'INVALID';
-  }
-}
-
-function session_validate($sid,$uid) {
+function validate_session($type,$sid,$oid) {
   // Run query to determine if the session is valid in db. If it is, return true, else return false
-  global $conn;
-
   $sid = sanitize_input($sid);
-  $uid = sanitize_input($uid);
-  if (strlen($sid) === 0 || strlen($uid) === 0) {
+  $oid = sanitize_input($oid);
+
+  // Don't even bother the DB if the length of either of these is too small/not uuid
+  if (strlen($sid) === 0 || strlen($oid) === 0) {
     return false;
   }
-  
-  $sql = 'SELECT count(`id`) AS `result` FROM `session` WHERE `id` = uuid_to_bin(?) AND `user_id` = uuid_to_bin(?) AND sysdate() < `expire`';
-  try {
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss",$sid,$uid);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc()['result'];
-    if ($result === 1) {
-      // We have a valid session, update the expiration and return true.
-      $sqlup = 'UPDATE `session` SET `expire`=ADDDATE(sysdate(),INTERVAL (SELECT `value` FROM `params` WHERE `KEY`=\'SESSION_INACTIVITY_LENGTH\') MINUTE) WHERE `id` = uuid_to_bin(?) AND `user_id` = uuid_to_bin(?)';
-      $up = $conn->prepare($sqlup);
-      $up->bind_param("ss",$sid,$uid);
-      if($up->execute()) {
-        return true;
+
+  if ($type === 'machine' || $type === 'MACHINE') {
+    $col = 'machine_id';
+  } elseif ($type === 'user' || $type === 'USER') {
+    $col = 'user_id';
+  } elseif ($type === 'browser' || $type === 'BROWSER') {
+    $col = 'browser_id';
+  } else {
+    return false;
+  }
+
+  // Setup Statements
+  #$sql  = 'SELECT count(id) AS result, uuid_to_bin(id) AS sid, uuid_to_bin(user_id) AS uid, uuid_to_bin(machine_id) AS mid, uuid_to_bin(browser_id) AS bid FROM `session` WHERE id = uuid_to_bin(?) AND '.$col.' = uuid_to_bin(?) AND sysdate() < `expire`';
+  $sql  = 'SELECT count(id) AS result FROM `session` WHERE id = uuid_to_bin(?) AND '.$col.' = uuid_to_bin(?) AND sysdate() < `expire`';
+  #$s2   = 'UPDATE `session` SET `expire`=ADDDATE(sysdate(),INTERVAL (SELECT `value` FROM `params` WHERE `KEY`=\'SESSION_INACTIVITY_LENGTH\') MINUTE),ip_address=?,user_agent=? WHERE id = uuid_to_bin(?) AND '.$col.' = uuid_to_bin(?)';
+  $s2   = 'UPDATE `session` SET `expire`=ADDDATE(sysdate(),INTERVAL (SELECT `value` FROM `params` WHERE `KEY`=\'SESSION_INACTIVITY_LENGTH\') MINUTE) WHERE id = uuid_to_bin(?) AND '.$col.' = uuid_to_bin(?)';
+
+  // Setup arguments
+  $args = array(array('s',$sid),array('s',$oid));
+
+  $r = get_sql($sql,$args);
+  if (!empty($r)) {
+    if ($r->num_rows === 1) {
+      $result = $r->fetch_assoc();
+      if ($result['result'] === 1) {
+        #$r2 = set_sql($s2,array(array('s',get_ip()),array('s',get_user_agent()),array('s',$sid),array('s',$oid)));
+        $r2 = set_sql($s2,$args);
+        if ((bool) $r2) {
+          return true;
+        }
       }
     }
-  } catch (Exception $e) {
-    //echo('Error checking login');
-    return false;
   }
   return false;
 }
 
 function valid_session() {
-  if (isset($_SESSION["sid"],$_SESSION["uid"])) {
-    $sid = sanitize_input($_SESSION["sid"]);
-    $uid = sanitize_input($_SESSION["uid"]);
-    return session_validate($sid,$uid);
+  if (isset($_SESSION['sid'],$_SESSION['uid'])) {
+    // User Session
+    $sid = sanitize_input($_SESSION['sid']);
+    $uid = sanitize_input($_SESSION['uid']);
+    return validate_session('USER',$sid,$uid);
+  } elseif (isset($_SESSION['sid'],$_SESSION['mid'])) {
+    // Machine session
+    $sid = sanitize_input($_SESSION['sid']);
+    $mid = sanitize_input($_SESSION['mid']);
+    return validate_session('MACHINE',$sid,$mid);
+  } elseif (isset($_SESSION['sid'],$_SESSION['bid'])) {
+    $sid = sanitize_input($_SESSION['sid']);
+    $bid = sanitize_input($_SESSION['bid']);
+    return validate_session('BROWSER',$sid,$bid);
   }
   return false;  
 }

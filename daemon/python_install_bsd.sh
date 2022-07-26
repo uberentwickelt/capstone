@@ -6,7 +6,3 @@ pkg install -y py${vers}-pip
 pkg install -y py${vers}-virtualenv
 pkg install -y py${vers}-wheel
 pip install --upgrade pip
-#python3 -m venv env
-#. env/bin/activate
-#pip install --upgrade pip
-#pip install -r requirements.txt

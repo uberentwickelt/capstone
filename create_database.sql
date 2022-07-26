@@ -87,24 +87,6 @@ CREATE TABLE IF NOT EXISTS `login` (
 	UNIQUE KEY `id_UNIQUE` (`id`) 
 );
 
-CREATE TABLE IF NOT EXISTS `user` (
-  `id` binary(16) NOT NULL,
-  `state_id` integer NOT NULL,
-  `f_name` varchar(255) NOT NULL,
-  `m_name` varchar(255) DEFAULT NULL,
-  `l_name` varchar(255) NOT NULL,
-  `suffix` varchar(20) DEFAULT NULL,
-  `sex` boolean,
-  `email` varchar(255),
-  `birthday` date NOT NULL,
-  `pubkey` varchar(5000) NOT NULL,
-  `created` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `id_UNIQUE` (`id`),
-  UNIQUE KEY `state_id_UNIQUE` (`state_id`),
-  UNIQUE KEY `person_UNIQUE` (`state_id`,`f_name`,`m_name`,`l_name`,`sex`,`birthday`)
-);
-
 CREATE TABLE IF NOT EXISTS `audit_user` (
   `id` binary(16) NOT NULL,
   `state_id` integer NOT NULL,
@@ -170,6 +152,7 @@ CREATE TABLE IF NOT EXISTS `session` (
   `id` binary(16) NOT NULL,
   `user_id` binary(16) DEFAULT NULL,
   `machine_id` binary(16) DEFAULT NULL,
+  `browser_id` binary(16) DEFAULT NULL,
   `create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `expire` datetime NOT NULL,
   `ip_address` varchar(45) NOT NULL,

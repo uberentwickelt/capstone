@@ -1,11 +1,14 @@
 import base64
-import cryptography
+#import cryptography
 from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography import x509
-from cryptography.x509.oid import NameOID
+#from cryptography import x509
+#from cryptography.x509.oid import NameOID
 from PyKCS11 import *
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from os.path import exists
 from time import sleep
 import binascii, json, os, requests, threading
@@ -54,10 +57,10 @@ class Backoff:
       self.backoff = self.backoff + self.backoff
     return return_value
 
-def apiGet(uri,data):
+def apiGet(session,uri,data):
   uri=apiBase+uri
   headers={'Content-Type':'application/json'}
-  s = requests.session()
+  s = session
   r = s.get(uri,headers=headers,json=data)
   if (r.status_code == 200):
     try:
@@ -68,10 +71,10 @@ def apiGet(uri,data):
       return False
   return False
 
-def apiPost(uri,data):
+def apiPost(session,uri,data):
   uri=apiBase+uri
   headers={'Content-Type':'application/json'}
-  s = requests.session()
+  s = session
   r = s.post(uri,headers=headers,json=data)
   if (r.status_code == 200):
     try:
@@ -163,25 +166,24 @@ def getReaders():
 def getSession(backoff,systemKey):
   public, private = systemKey["public"], systemKey["private"]
   pub = base64.b64encode(public).decode("utf-8")
-  get_challenge = apiPost('/get/session',{
+  session = requests.session()
+  get_challenge = apiPost(session,'/get/session',{
     'type':'machine',
     'publicKey':pub
   })
   if (get_challenge != False):
     if "mid" in get_challenge and "display" in get_challenge and "challenge" in get_challenge:
-      #print(get_challenge)
       # Machine exists with login challenge
       # sign challenge and send id,display,pubkey, and challenge signature
       # Base64 encode the signature so it can be converted to a string and json serialized.
       # Work will need to be done on the php side to base64 decode before validating the challenge
       signature = base64.b64encode(signMachineMessage(systemKey,get_challenge['challenge'])).decode('utf-8')
-      #print(signature)
-
       if (signature != False):
         # Signature is valid/successful
         # Get the salt length of the signature to pass with our request
+        # https://github.com/pyca/cryptography/issues/3008
         saltLength = padding.calculate_max_pss_salt_length(serialization.load_pem_public_key(public), hashes.SHA256())
-        get_session = apiPost('/get/session',{
+        get_session = apiPost(session,'/get/session',{
           'type':'machine',
           'mid':get_challenge['mid'],
           'response':signature,
@@ -191,7 +193,6 @@ def getSession(backoff,systemKey):
           if "sid" in get_session and "mid" in get_session and "did" in get_session:
             # Got a valid session! Yay!
             return get_session
-
         wait_value = backoff.increment()
         print('Failed to get session. Waiting '+str(wait_value)+' seconds before trying again.')
         sleep(wait_value)
@@ -372,7 +373,7 @@ def validateSignature(reader,pin,message,signature):
 
 def main():
   setPKCSenv()
-  backoff = Backoff().backoff
+  backoff = Backoff()
   run = True
   while(run):
     # Check if system key exists
@@ -389,6 +390,12 @@ def main():
 
     print('got a session: ')
     print(session)
+
+    #ff_options = webdriver.FirefoxOptions()
+    #ff_options.add_argument("--kiosk")
+    #driver = Firefox(executable_path='./geckodriver',options=ff_options)
+    driver = webdriver.Firefox(executable_path='./geckodriver')
+    driver.get(uriBase+'/?sid='+session['sid']+'&mid='+session['mid'])
     quit()
 
     # Check if card readers/card exist on system
