@@ -87,21 +87,6 @@ CREATE TABLE IF NOT EXISTS `login` (
 	UNIQUE KEY `id_UNIQUE` (`id`) 
 );
 
-CREATE TABLE IF NOT EXISTS `audit_user` (
-  `id` binary(16) NOT NULL,
-  `state_id` integer NOT NULL,
-  `f_name` varchar(255) NOT NULL,
-  `m_name` varchar(255) DEFAULT NULL,
-  `l_name` varchar(255) NOT NULL,
-  `suffix` varchar(20) DEFAULT NULL,
-  `sex` boolean,
-  `email` varchar(255),
-  `birthday` date NOT NULL,
-  `pubkey` varchar(5000) NOT NULL,
-  `created` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `audit_date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS `machine` (
   `id` binary(16) NOT NULL,
   `friendly_id` varchar(7) NOT NULL,

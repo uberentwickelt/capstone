@@ -1,61 +1,24 @@
 import base64
-#import cryptography
-from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-#from cryptography import x509
-#from cryptography.x509.oid import NameOID
-from PyKCS11 import *
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from os.path import exists
+from card import *
+from classes import *
+from machine_code import *
 from time import sleep
+from browser import launch
+from queue import Queue
 import binascii, json, os, requests, threading
-#import datetime
-try:
-  from os import scandir
-except ImportError:
-  from scandir import scandir
-pkcs11 = PyKCS11Lib()
+import asyncio,websockets
 
 keyBits = 2048
 #confDir = '/etc/voted/'
 confDir = './'
-uriBase = "https://{server name}"
+uriBase = "https://vote.ack3r.net"
 apiBase = uriBase + "/api"
+kiosk   = False
 # Log Levels:
 LOG_NONE = 0
 INFO = 1
 DEBUG = 2
 logLevel = DEBUG
-
-class Card:
-  serial = ""
-  label  = ""
-  minPin = 0
-  maxPin = 0
-  def __init__(self,serial,label,minPin,maxPin):
-    self.serial = serial
-    self.label  = label
-    self.minPin = minPin
-    self.maxPin = maxPin
-  def toString(self):
-    print(" Serial: "+self.serial)
-    print("  Label: "+self.label)
-    print("Min Pin: "+str(self.minPin))
-    print("Max Pin: "+str(self.maxPin))
-
-class Backoff:
-  backoff = 2
-  maxBackoff = 120
-  def __init__(self):
-    return
-  def increment(self):
-    return_value = self.backoff
-    if (self.backoff <= self.maxBackoff):
-      self.backoff = self.backoff + self.backoff
-    return return_value
 
 def apiGet(session,uri,data):
   uri=apiBase+uri
@@ -67,7 +30,7 @@ def apiGet(session,uri,data):
       return r.json()
     except requests.JSONDecodeError as e:
       if logLevel == DEBUG:
-        print(e)
+        print('JSON decode error: '+e)
       return False
   return False
 
@@ -81,7 +44,7 @@ def apiPost(session,uri,data):
       return r.json()
     except requests.JSONDecodeError as e:
       if logLevel >= DEBUG:
-        print(e)
+        print('JSON decode error: '+e)
       return False
   if (r.status_code == 500 and logLevel >= DEBUG):
     print('Error in request, check weblogs')
@@ -89,79 +52,6 @@ def apiPost(session,uri,data):
 
 def authenticate(reader):
   print(reader)
-
-def cardPresent(reader):
-  info = pkcs11.getSlotInfo(reader)
-  if info.flags & PyKCS11.CKF_TOKEN_PRESENT:
-    return True
-  if (logLevel >= DEBUG):
-    print("No Card")
-  return False
-
-def generateSystemKey():
-  # https://github.com/pyca/cryptography
-  # https://cryptography.io/en/latest/x509/tutorial/#creating-a-self-signed-certificate
-  # Generate and store system key
-  try:
-    key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=keyBits,
-    )
-    public = key.public_key().public_bytes(
-      encoding=serialization.Encoding.PEM,
-      format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    private = key.private_bytes(
-      encoding=serialization.Encoding.PEM,
-      format=serialization.PrivateFormat.TraditionalOpenSSL,
-      encryption_algorithm=serialization.NoEncryption()
-    )
-    # Write key to disk
-    for ky in [["private",private],["public",public]]:
-      with open(confDir+ky[0]+"key.pem", "wb") as f:
-        f.write(ky[1])
-    return True
-  except:
-    return False
-
-def getCard(reader):
-  card = pkcs11.getTokenInfo(reader)
-  if (cardPresent(reader)):
-    return Card(card.serialNumber,card.label,card.ulMinPinLen,card.ulMaxPinLen)
-  if (logLevel >= DEBUG):
-    print("Class - Card Invalid")
-  return False
-
-def getPublicKey(reader,pin):
-  session = pkcs11.openSession(reader, PyKCS11.CKF_SERIAL_SESSION | PyKCS11.CKF_RW_SESSION)
-  try:
-    session.login(str(pin))
-  except PyKCS11Error as e:
-    session.closeSession()
-    if (e.value == PyKCS11.CKF_PIN_INCORRECT):
-      return 'CKF_PIN_INCORRECT'
-    elif (e.value == PyKCS11.CKF_PIN_LOCKED):
-      return 'CKF_PIN_LOCKED'
-    else:
-      return 'ERROR'
-  # find public key and print modulus
-  pubKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY)])[0]
-  modulus = session.getAttributeValue(pubKey, [PyKCS11.CKA_MODULUS])[0]
-  session.logout()
-  session.closeSession()
-  return binascii.hexlify(bytearray(modulus))
-
-def getReaders():
-  # The following getSlotList with parameter will force the software to assume
-  #   a card is in the slot even if it is not.
-  # Pkcs11 treats the word 'Token' as the card
-  #slot = pkcs11.getSlotList(tokenPresent=True)
-  slot = pkcs11.getSlotList()
-  if (len(slot) > 0):
-    return slot
-  if (logLevel >= DEBUG):
-    print("No Reader")
-  return False
 
 def getSession(backoff,systemKey):
   public, private = systemKey["public"], systemKey["private"]
@@ -219,205 +109,94 @@ def getSession(backoff,systemKey):
   print('Attempts to get session exceeded. Returning False.')
   return False
 
-def getSystemKey():
-  keys = {"private":"","public":""}
-  # Check to make sure both files exist
-  existing_files = 0
-  for key in keys:
-    if (exists(confDir+key+"key.pem")):
-      existing_files += 1
-
-  # If one or more of the files do not exist, make sure the other does not exist
-  if (existing_files < 2):
-    # If no files exist, generate new keys and save them.
-    # Then start the loop over to skip the rest of the if statement
-    if (existing_files == 0):
-      generateSystemKey()
-      getSystemKey()
-    
-    # If one of the files exists, remove it, then start the function over.
-    for key in keys:
-      if (exists(confDir+key+"key.pem")):
-        os.remove(confDir+key+"key.pem")
-    getSystemKey()
- 
-  # A key should now exist, load it into memory
-  for key in keys:
-    # Just to be extra careful, check the file exists
-    if (exists(confDir+key+"key.pem")):
-      with open(confDir+key+"key.pem",'rb') as f:
-        keys[key] = f.read()
-  return keys
-
-def handle_card():
-  print("")
-
 def monitor_card(reader):
   print(reader)
 
 def monitor_session():
-  print("")
+  print("monitor_session")
 
-def scanFiles(dir,file):
+def threadWS(toWSThread,fromWSThread):
+  # Thank you ZachL: https://stackoverflow.com/a/72220058
   try:
-    objs = scandir(path=dir)
-  except (PermissionError,OSError):
-    return ""
-  
-  for obj in objs:
-    if obj.is_file():
-      if (obj.name == file):
-        return str(obj.path)
-    if obj.is_dir():
-      if not obj.is_symlink():
-        test = scanFiles(obj.path,file)
-        if (len(test) > 0):
-          return str(test)
-  return ""
-
-def setPKCSenv():
-  ENV = "PYKCS11LIB"
-  if ENV not in os.environ:  
-    pkcsModule = ""
-    pkcsModuleFile = 'opensc-pkcs11.so'
-    for i in ['/lib','/usr']:
-      pkcsModule = scanFiles(i,pkcsModuleFile)
-      if (len(pkcsModule) > 0):
-        break
-    # If scanFiles returned nothing, print error then exit
-    if (len(pkcsModule) == 0):
-      print("Could not source PKCS11 Library '"+pkcsModuleFile+"'")
-      quit()
-    os.environ[ENV] = pkcsModule
-
-  # Load pkcs11 module
-  pkcs11.load()
-
-def signMachineMessage(systemKey,message):
-  # https://www.cryptoexamples.com/python_cryptography_string_signature_rsa.html
-  signature = False
-  public, private = systemKey["public"], systemKey["private"]
-  private = serialization.load_pem_private_key(private,password=None)
-  public = serialization.load_pem_public_key(public)
-  try:
-    # SIGN DATA/STRING
-    signature = private.sign(
-      data=message.encode('utf-8'),
-      padding=padding.PSS(
-        mgf=padding.MGF1(hashes.SHA256()),
-        salt_length=padding.PSS.MAX_LENGTH
-      ),
-      algorithm=hashes.SHA256()
-    )
-    # VERIFY JUST CREATED SIGNATURE USING PUBLIC KEY
-    try:
-      public.verify(
-        signature=signature,
-        data=message.encode('utf-8'),
-        padding=padding.PSS(
-          mgf=padding.MGF1(hashes.SHA256()),
-          salt_length=padding.PSS.MAX_LENGTH
-        ),
-        algorithm=hashes.SHA256()
-      )
-    except InvalidSignature:
-      signature = False
-  except UnsupportedAlgorithm as e:
-    signature = False
-  return signature
-
-def signMessage(slot,pin,message):
-  session = pkcs11.openSession(slot, PyKCS11.CKF_SERIAL_SESSION | PyKCS11.CKF_RW_SESSION)
-  try:
-    session.login(pin)
-  except PyKCS11Error as e:
-    session.closeSession()
-    if (e.value == PyKCS11.CKF_PIN_INCORRECT):
-      return 'CKF_PIN_INCORRECT'
-    elif (e.value == PyKCS11.CKF_PIN_LOCKED):
-      return 'CKF_PIN_LOCKED'
+    loop = asyncio.get_event_loop()
+  except RuntimeError as e:
+    if str(e).startswith('There is no current event loop in thread'):
+      l2 = asyncio.new_event_loop()
+      asyncio.set_event_loop(l2)
+      loop = asyncio.get_event_loop()
     else:
-      return 'ERROR'
-  # Key ID must be a tuple with trailing comma
-  # Might search without keyID
-  # original waas (0x22,)
-  #keyID = (4,)
-  toSign = binascii.hexlify(bytearray(message,'utf-8'))
-  #privKey = session.findObjects([(CKA_CLASS, CKO_PRIVATE_KEY), (CKA_ID, keyID)])[0]
-  privKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY)])[0]
-  signature = session.sign(privKey, binascii.unhexlify(toSign), Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None))
-  # logout
-  session.logout()
-  session.closeSession()
-  return binascii.hexlify(bytearray(signature))
-
-def validateSignature(reader,pin,message,signature):
-  session = pkcs11.openSession(slot, PyKCS11.CKF_SERIAL_SESSION | PyKCS11.CKF_RW_SESSION)
-  try:
-    session.login(pin)
-  except PyKCS11Error as e:
-    session.closeSession()
-    if (e.value == PyKCS11.CKF_PIN_INCORRECT):
-      return 'CKF_PIN_INCORRECT'
-    elif (e.value == PyKCS11.CKF_PIN_LOCKED):
-      return 'CKF_PIN_LOCKED'
-    else:
-      return 'ERROR'
-
-  pubKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY)])[0]
-  result = session.verify(pubKey, message, signature, Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None))
-  # logout
-  session.logout()
-  session.closeSession()
-  return result
+      raise
+  finally:
+    start_server = websockets.serve(Server(toWSThread,fromWSThread).handler,'localhost',1776)
+    loop.run_until_complete(start_server)
+    loop.run_forever()
 
 def main():
-  setPKCSenv()
   backoff = Backoff()
-  run = True
-  while(run):
+  while True:
     # Check if system key exists
     systemKey = getSystemKey()
     if (systemKey == False):
       sleep(backoff.increment())
       continue
-
-    # Connect to api and get session logic here
+    # Connect to api and get a session
     session = getSession(Backoff(),systemKey)
     if (session == False):
       sleep(backoff.increment())
       continue
+    else:
+      # Got a valid session, leave while loop and go back to main function
+      break
 
-    print('got a session: ')
-    print(session)
+  # Start websocket server and queues
+  toWSThread = Queue()
+  fromWSThread = Queue()
+  thread_ws = threading.Thread(target=threadWS,args=(toWSThread,fromWSThread,),daemon=True)
+  thread_ws.start()
+  # Start web browser with login session
+  launch(uriBase+'/?sid='+session['sid']+'&mid='+session['mid'],kiosk)
 
-    #ff_options = webdriver.FirefoxOptions()
-    #ff_options.add_argument("--kiosk")
-    #driver = Firefox(executable_path='./geckodriver',options=ff_options)
-    driver = webdriver.Firefox(executable_path='./geckodriver')
-    driver.get(uriBase+'/?sid='+session['sid']+'&mid='+session['mid'])
-    quit()
+  #Setup PKCS environment
+  setPKCSenv()
 
-    # Check if card readers/card exist on system
+  # Check if card readers/card exist on system
+  readers = getReaders()
+  while readers is False:
+    timeout = backoff.increment()
+    print('No card reader found. Waiting '+timeout+' seconds for a reader.')
+    toWSThread.put('No Card Reader')
+    sleep(timeout)
     readers = getReaders()
-    if (readers == False):
-      sleep(backoff.increment())
-      continue
 
-    # Set first reader as reader
-    reader = readers[0]
+  # Set first reader as reader
+  reader = readers[0]
 
+  # Wait for card if run is true
+  run = True
+  while run:
     # Ensure a card is in the reader
-    if (cardPresent(reader) == False):
-      sleep(backoff.increment())
+    # Wait for a card before continuing with the rest of the loop
+    # Only wait 2 seconds between checks, not full backoff
+    present = cardPresent(reader)
+    if (present == False or present == 'No Card'):
+      toWSThread.put('No Card')
+      print('No Card')
+      sleep(2)
       continue
 
     # If Card is not valid, restart loop:
     card = getCard(reader)
     if (card == False):
+      toWSThread.put('Invalid Card')
       sleep(backoff.increment())
       continue
-    
+  
+    # If a valid card is inserted, we have card info so send a message saying we have a valid card
+    # then we will exit for now.
+    toWSThread.put('Card is Accepted')
+    sleep(10)
+    quit()
+
     # Valid session has been established with api
     # Card is present in found reader
     # Card class is valid

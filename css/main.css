@@ -8,6 +8,23 @@ body {
   margin-bottom: 60px;
 }
 
+/* https://stackoverflow.com/a/22196760 */
+.vertical-center {
+  min-height: 100%;  /* Fallback for browsers do NOT support vh unit */
+  min-height: 100vh; /* These two lines are counted as one :-)       */
+
+  display: flex;
+  align-items: center;
+}
+
+.vote-vertical-upper-center {
+  min-height: 70%;  /* Fallback for browsers do NOT support vh unit */
+  min-height: 70vh; /* These two lines are counted as one :-)       */
+
+  display: flex;
+  align-items: center;
+}
+
 body > div:nth-last-of-type(1) {
   padding-bottom: 70px;
 }

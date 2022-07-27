@@ -1,4 +1,5 @@
-<div class="container border-top">
+<?php if (!isset($_SESSION['sid'],$_SESSION['did'])) { ?>
+<div class="container">
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
       <a class="navbar-brand" href="/">Vote</a>
@@ -11,7 +12,11 @@
           <li class="nav-item">
             <a class="nav-link" href="/admin">Admin</a>
           </li>
-          <?php if (valid_session()) { ?>
+          <?php /*
+          <li class="nav-item">
+            <a class="nav-link" href="/about">About</a>
+          </li> */ ?>
+          <?php if (valid_session() && isset($_SESSION['uid'])) { ?>
             <li class="nav-item">
               <a class="nav-link" href="/pages/create_account">Create Account</a>
             </li>
@@ -24,3 +29,4 @@
     </div>
   </nav>
 </div>
+<?php } ?>
