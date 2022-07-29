@@ -1,7 +1,5 @@
 <?php
 include_once($_SERVER['DOCUMENT_ROOT'].'/api/api_config.php');
-
-$return_val = 'false';
 if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
   if (sanitize_input($_SERVER["CONTENT_TYPE"]) === "application/json") {
     $_POST = json_decode(file_get_contents('php://input'), true);
@@ -14,21 +12,25 @@ if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
       if (!empty($r)) {
         if ($r->num_rows === 1) {
           if ($r->fetch_assoc()['result'] === 1) {
-            $s2 = 'SELECT card_pin FROM citizen WHERE card = ?';
+            $s2 = 'SELECT bin_to_uuid(id) AS cid, card_pin FROM citizen WHERE card = ?';
             $r2 = get_sql($sql,array(array('s',$serial)));
             if (!empty($r2)) {
               if ($r2->num_rows === 1) {
-                $return_val = array('card_status'$r2->fetch_assoc()['card_pin'];
+                $row = $r2->fetch_assoc();
+                if (empty($row['card_pin'])) {
+                  print(json_encode(array('card_status'=>'Default Pin','cid'=>$row['cid'])));    
+                } else {
+                  print(json_encode(array('card_status'=>'Card Enrolled','cid'=>$row['cid'],'pin'=>$row['card_pin'])));
+                }
               }
             } else {
-              $return_val = 'Default Pin';
+              print(json_encode(array('card_status'=>'Card Not Enrolled')));
             }
           } else {
-            $return_val = 'Card Not Enrolled';
+            print(json_encode(array('card_status'=>'Card Not Enrolled')));
           }
         }
       }
     }
   }
-  return $return_val;
 }

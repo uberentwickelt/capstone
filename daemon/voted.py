@@ -5,13 +5,13 @@ from machine_code import *
 from time import sleep
 from browser import launch
 from queue import Queue
-import binascii, json, os, requests, threading
+import binascii, json, os, requests, threading, sys
 import asyncio,websockets
 
 keyBits = 2048
 #confDir = '/etc/voted/'
 confDir = './'
-uriBase = "https://vote.ack3r.net"
+uriBase = "https://{server name}"
 apiBase = uriBase + "/api"
 kiosk   = False
 # Log Levels:
@@ -218,14 +218,34 @@ def main():
     
     # Check to see if the card is enrolled in the database as a person
     pin = apiPost(requests_session,'/get/pin',{
-    'serial':card.serial,
+    'serial':str(card.serial)
     })
-    if pin == False:
-      print('Card not enrolled')
-    elif pin == 'Default Pin':
-      pin = default_pin
-    
-    print('Got Pin from server: '+pin)
+    #pin != False and
+    if "card_status" in pin:
+      # card data request succeeded
+      # process the data
+      if pin['card_status'] == 'Card Enrolled' and 'cid' in pin:
+        print(pin['card_status'])
+        toWSThread.put(pin['card_status'])
+        challenge = apiPost(requests_session,'/get/citizen_challenge',{
+          'cid':pin['cid'],
+          'serial':card.serial
+        })
+        if challenge != False and 'challenge' in challenge:
+          print('got a challenge: '+challenge)
+      elif pin['card_status'] == 'Default Pin' and 'cid' in pin:
+        print(pin['card_status'])
+        toWSThread.put(pin['card_status'])
+        pin['pin'] = default_pin
+      elif pin['card_status'] == 'Card Not Enrolled':
+        print(pin['card_status'])
+        toWSThread.put(pin['card_status'])
+      else:
+        print('Some other error occured while attempting to get card pin data')
+    else:
+      # card request did not complete successfully
+      print('Some other error occured while attempting to get card pin data')
+        
     #if fromWSThread.not_empty:
     #  print(fromWSThread.get())
     sleep(10)

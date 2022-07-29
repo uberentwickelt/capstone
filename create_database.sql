@@ -24,6 +24,9 @@ DROP TABLE IF EXISTS `audit_role`;
 DROP TABLE IF EXISTS `session`;
 DROP TABLE IF EXISTS `session_archive`;
 
+DROP FUNCTION IF EXISTS `get_citizen_challenge`;
+DROP FUNCTION IF EXISTS `get_machine_challenge`;
+
 CREATE TABLE IF NOT EXISTS `election` (
   `id` binary(16) NOT NULL,
   `name` varchar(255) NOT NULL,
@@ -91,9 +94,11 @@ CREATE TABLE IF NOT EXISTS `login` (
 CREATE TABLE IF NOT EXISTS `citizen` (
 	`id` binary(16) NOT NULL,
   `card` varchar(32) NOT NULL,
-  `card_pin` varchar(32) NOT NULL,
+  `card_pin` varchar(32) NULL,
   `public_key` varchar(5000) NOT NULL,
   `display_name` varchar(32) NOT NULL,
+  `challenge` varchar(32) DEFAULT NULL,
+	`challenge_expire` datetime DEFAULT NULL,
   `create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
 	UNIQUE KEY `card_UNIQUE` (`card`),
@@ -174,6 +179,24 @@ CREATE TABLE IF NOT EXISTS `session_archive` (
 );
 
 DELIMITER ;;
+CREATE FUNCTION get_citizen_challenge(citizen_id binary(16))
+RETURNS VARCHAR(32)
+DETERMINISTIC
+BEGIN
+	SET @challenge = (
+	SELECT `challenge` FROM `citizen` WHERE `id` = citizen_id AND sysdate() < `challenge_expire` AND `challenge` IS NOT NULL
+    );
+    IF @challenge IS NULL AND (SELECT 1 FROM `citizen` WHERE `id` = citizen_id) THEN
+		SET @challenge = UPPER(LEFT(MD5(RAND()), 32));
+        UPDATE `citizen` SET `challenge` = @challenge, 
+			`challenge_expire` = (sysdate() + INTERVAL (
+				SELECT `value` FROM `params` WHERE `key` = 'CITIZEN_CHALLENGE_LENGTH'
+			) MINUTE)
+		WHERE `id` = citizen_id;
+	END IF;
+    RETURN @challenge;
+END;;
+
 CREATE FUNCTION get_machine_challenge(machine_id binary(16))
 RETURNS VARCHAR(32)
 DETERMINISTIC
@@ -329,6 +352,7 @@ DELIMITER ;
 
 INSERT INTO `params` (`key`, `value`,`description`) values
 ("SESSION_INACTIVITY_LENGTH","30","Time in minutes a user session may be inactive before expiring."),
-("MACHINE_CHALLENGE_LENGTH","2","Time in minutes a machine challenge is valid");
+("MACHINE_CHALLENGE_LENGTH","2","Time in minutes a machine challenge is valid"),
+("CITIZEN_CHALLENGE_LENGTH","2","Time in minutes a citizen challenge is valid");
 
 SET sql_notes = 1; -- Enable warnings
