@@ -14,7 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+lib/bootstrap
+lib/bootstrap-icons
+lib/jquery
+lib/popper
 lib64/
 parts/
 sdist/
