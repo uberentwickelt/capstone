@@ -32,13 +32,11 @@ def cardPresent(reader):
   info = pkcs11.getSlotInfo(reader)
   if info.flags & PyKCS11.CKF_TOKEN_PRESENT:
     return True
-  if (logLevel >= DEBUG):
-    return "No Card"
   return False
 
 def getCard(reader):
-  card = pkcs11.getTokenInfo(reader)
   if (cardPresent(reader)):
+    card = pkcs11.getTokenInfo(reader)
     return Card(card.serialNumber,card.label,card.ulMinPinLen,card.ulMaxPinLen)
   if (logLevel >= DEBUG):
     print("Class - Card Invalid")

@@ -53,10 +53,9 @@ def apiPost(session,uri,data):
 def authenticate(reader):
   print(reader)
 
-def getSession(backoff,systemKey):
+def getSession(session,backoff,systemKey):
   public, private = systemKey["public"], systemKey["private"]
   pub = base64.b64encode(public).decode("utf-8")
-  session = requests.session()
   get_challenge = apiPost(session,'/get/session',{
     'type':'machine',
     'publicKey':pub
@@ -86,17 +85,17 @@ def getSession(backoff,systemKey):
         wait_value = backoff.increment()
         print('Failed to get session. Waiting '+str(wait_value)+' seconds before trying again.')
         sleep(wait_value)
-        getSession(backoff,systemKey)
+        getSession(session,backoff,systemKey)
     elif "mid" in get_challenge and "display" in get_challenge:
       wait_value = backoff.increment()
       print('Machine Display ID ('+get_challenge["display"]+') not activated. Waiting '+str(wait_value)+' seconds before checking for activation again.')
       sleep(wait_value)
-      getSession(backoff,systemKey)
+      getSession(session,backoff,systemKey)
     else:
       wait_value = backoff.increment()
       print('Machine not found. Waiting '+str(wait_value)+' seconds before trying again.')
       sleep(wait_value)
-      getSession(backoff,systemKey)
+      getSession(session,backoff,systemKey)
   else:
     wait_value = backoff.increment()
     if (wait_value > backoff.maxBackoff):
@@ -104,7 +103,7 @@ def getSession(backoff,systemKey):
       return False
     print('Failed to get initial phase. Waiting '+str(wait_value)+' seconds before trying again.')
     sleep(wait_value)
-    getSession(backoff,systemKey)
+    getSession(session,backoff,systemKey)
 
   print('Attempts to get session exceeded. Returning False.')
   return False
@@ -133,6 +132,7 @@ def threadWS(toWSThread,fromWSThread):
 
 def main():
   backoff = Backoff()
+  requests_session = requests.session()
   while True:
     # Check if system key exists
     systemKey = getSystemKey()
@@ -140,7 +140,7 @@ def main():
       sleep(backoff.increment())
       continue
     # Connect to api and get a session
-    session = getSession(Backoff(),systemKey)
+    session = getSession(requests_session,Backoff(),systemKey)
     if (session == False):
       sleep(backoff.increment())
       continue
@@ -178,8 +178,10 @@ def main():
     # Wait for a card before continuing with the rest of the loop
     # Only wait 2 seconds between checks, not full backoff
     present = cardPresent(reader)
-    if (present == False or present == 'No Card'):
+    if (present == False):
       toWSThread.put('No Card')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
       print('No Card')
       sleep(2)
       continue
@@ -188,12 +190,44 @@ def main():
     card = getCard(reader)
     if (card == False):
       toWSThread.put('Invalid Card')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
       sleep(backoff.increment())
       continue
   
-    # If a valid card is inserted, we have card info so send a message saying we have a valid card
-    # then we will exit for now.
-    toWSThread.put('Card is Accepted')
+    # Check info about the card
+    # Determine what type of card it is
+    default_pin = False
+    if (card.label == 'PIV_II'):
+      # Is likely YubiCo
+      default_pin = 123456
+      if (card.serial == 00000000):
+        toWSThread.put('Card Not Initialized')
+        print('Card Not Initializled')
+        sleep(backoff.increment())
+        continue
+    elif card.label.startswith('PIVKey'):
+      # Is Likely Smart Card
+      default_pin = 000000
+
+    # Card is compatiable with the system (more or less)
+    # Try to authenticate - Update web interface to show
+    # That the card was inserted and authentication is
+    # being attempted
+    toWSThread.put('Card Compatible')
+    
+    # Check to see if the card is enrolled in the database as a person
+    pin = apiPost(requests_session,'/get/pin',{
+    'serial':card.serial,
+    })
+    if pin == False:
+      print('Card not enrolled')
+    elif pin == 'Default Pin':
+      pin = default_pin
+    
+    print('Got Pin from server: '+pin)
+    #if fromWSThread.not_empty:
+    #  print(fromWSThread.get())
     sleep(10)
     quit()
 

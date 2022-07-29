@@ -7,6 +7,7 @@ FLUSH PRIVILEGES;
 -- Create tables
 USE `vote`;
 
+DROP TABLE IF EXISTS `citizen`;
 DROP TABLE IF EXISTS `election`;
 DROP TABLE IF EXISTS `race`;
 DROP TABLE IF EXISTS `race_result`;
@@ -84,6 +85,18 @@ CREATE TABLE IF NOT EXISTS `login` (
     PRIMARY KEY (`id`),
 	UNIQUE KEY `username_UNIQUE` (`username`),
     UNIQUE KEY `display_name_UNIQUE` (`display_name`),
+	UNIQUE KEY `id_UNIQUE` (`id`) 
+);
+
+CREATE TABLE IF NOT EXISTS `citizen` (
+	`id` binary(16) NOT NULL,
+  `card` varchar(32) NOT NULL,
+  `card_pin` varchar(32) NOT NULL,
+  `public_key` varchar(5000) NOT NULL,
+  `display_name` varchar(32) NOT NULL,
+  `create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+	UNIQUE KEY `card_UNIQUE` (`card`),
 	UNIQUE KEY `id_UNIQUE` (`id`) 
 );
 
@@ -177,6 +190,12 @@ BEGIN
 		WHERE `id` = machine_id;
 	END IF;
     RETURN @challenge;
+END;;
+
+CREATE TRIGGER `citizen_BEFORE_INSERT` BEFORE INSERT ON `citizen` FOR EACH ROW BEGIN
+	IF new.`id` IS NULL THEN
+      SET new.`id` = uuid_to_bin(uuid());
+	END If;
 END;;
 
 CREATE TRIGGER `election_BEFORE_INSERT` BEFORE INSERT ON `election` FOR EACH ROW BEGIN
