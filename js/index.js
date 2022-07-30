@@ -15,16 +15,18 @@ $(document).ready((async () => {
   });
 
   socket.addEventListener('message', function (event) {
-    if (isJson(event.data)) {
+    /*if (isJson(event.data)) {
       // Treat event.data as json
 
-    } else {
+    } else {*/
       // Treat as a string if not json
       switch(event.data) {
         case 'No Card':
+          console.log(event.data)
           $('#sign-in').removeClass('d-none');
           break;
         case 'Card Compatible':
+          console.log(event.data)
           $('#sign-in').addClass('d-none');
           $('#waiting-on-card-validation').removeClass('d-none');
         default:
@@ -32,7 +34,7 @@ $(document).ready((async () => {
           $('#ws-test').append(event.data+'<br>');
           break;
       }
-    }
+    //}
   });
 
   $('#testWS').on('click',()=>{

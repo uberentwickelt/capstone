@@ -13,7 +13,7 @@ if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
         if ($r->num_rows === 1) {
           if ($r->fetch_assoc()['result'] === 1) {
             $s2 = 'SELECT bin_to_uuid(id) AS cid, card_pin FROM citizen WHERE card = ?';
-            $r2 = get_sql($sql,array(array('s',$serial)));
+            $r2 = get_sql($s2,array(array('s',$serial)));
             if (!empty($r2)) {
               if ($r2->num_rows === 1) {
                 $row = $r2->fetch_assoc();
@@ -22,15 +22,16 @@ if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
                 } else {
                   print(json_encode(array('card_status'=>'Card Enrolled','cid'=>$row['cid'],'pin'=>$row['card_pin'])));
                 }
-              }
+              } else { json_encode('Error Occurred'); }
             } else {
               print(json_encode(array('card_status'=>'Card Not Enrolled')));
             }
           } else {
             print(json_encode(array('card_status'=>'Card Not Enrolled')));
           }
-        }
-      }
-    }
-  }
-}
+        } else { json_encode('Error Occurred'); }
+      } else { json_encode('Error Occurred'); }
+    } else { json_encode('Error Occurred'); }
+  } else { json_encode('Error Occurred'); }
+} else { json_encode('Error Occurred'); }
+?>

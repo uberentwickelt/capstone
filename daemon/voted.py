@@ -4,14 +4,16 @@ from classes import *
 from machine_code import *
 from time import sleep
 from browser import launch
-from queue import Queue
+#from queue import Queue
 import binascii, json, os, requests, threading, sys
 import asyncio,websockets
+import functools
+from asyncio import Queue
 
 keyBits = 2048
 #confDir = '/etc/voted/'
 confDir = './'
-uriBase = "https://{server name}"
+uriBase = "https://vote.ack3r.net"
 apiBase = uriBase + "/api"
 kiosk   = False
 # Log Levels:
@@ -30,7 +32,8 @@ def apiGet(session,uri,data):
       return r.json()
     except requests.JSONDecodeError as e:
       if logLevel == DEBUG:
-        print('JSON decode error: '+e)
+        print('JSON decode error: '+str(e))
+        print('JSON Error on uri: '+str(uri))
       return False
   return False
 
@@ -44,14 +47,12 @@ def apiPost(session,uri,data):
       return r.json()
     except requests.JSONDecodeError as e:
       if logLevel >= DEBUG:
-        print('JSON decode error: '+e)
+        print('JSON decode error: '+str(e))
+        print('JSON Error on uri: '+str(uri))
       return False
   if (r.status_code == 500 and logLevel >= DEBUG):
     print('Error in request, check weblogs')
   return False
-
-def authenticate(reader):
-  print(reader)
 
 def getSession(session,backoff,systemKey):
   public, private = systemKey["public"], systemKey["private"]
@@ -127,10 +128,13 @@ def threadWS(toWSThread,fromWSThread):
       raise
   finally:
     start_server = websockets.serve(Server(toWSThread,fromWSThread).handler,'localhost',1776)
+    #start_server = websockets.serve(
+    #  functools.partial(handler,fromMainThread=toWSThread,toMainThread=fromWSThread),
+    #  'localhost', 1776)
     loop.run_until_complete(start_server)
     loop.run_forever()
 
-def main():
+async def main():
   backoff = Backoff()
   requests_session = requests.session()
   while True:
@@ -163,8 +167,8 @@ def main():
   readers = getReaders()
   while readers is False:
     timeout = backoff.increment()
-    print('No card reader found. Waiting '+timeout+' seconds for a reader.')
-    toWSThread.put('No Card Reader')
+    print('No card reader found. Waiting '+str(timeout)+' seconds for a reader.')
+    await toWSThread.put('No Card Reader')
     sleep(timeout)
     readers = getReaders()
 
@@ -179,9 +183,9 @@ def main():
     # Only wait 2 seconds between checks, not full backoff
     present = cardPresent(reader)
     if (present == False):
-      toWSThread.put('No Card')
+      await toWSThread.put('No Card')
       if not fromWSThread.empty:
-        print(fromWSThread.get())
+        print(await fromWSThread.get())
       print('No Card')
       sleep(2)
       continue
@@ -189,9 +193,9 @@ def main():
     # If Card is not valid, restart loop:
     card = getCard(reader)
     if (card == False):
-      toWSThread.put('Invalid Card')
+      await toWSThread.put('Invalid Card')
       if not fromWSThread.empty:
-        print(fromWSThread.get())
+        print(await fromWSThread.get())
       sleep(backoff.increment())
       continue
   
@@ -202,7 +206,7 @@ def main():
       # Is likely YubiCo
       default_pin = 123456
       if (card.serial == 00000000):
-        toWSThread.put('Card Not Initialized')
+        await toWSThread.put('Card Not Initialized')
         print('Card Not Initializled')
         sleep(backoff.increment())
         continue
@@ -214,40 +218,41 @@ def main():
     # Try to authenticate - Update web interface to show
     # That the card was inserted and authentication is
     # being attempted
-    toWSThread.put('Card Compatible')
+    print('Card Compatible')
+    await toWSThread.put('Card Compatible')
     
     # Check to see if the card is enrolled in the database as a person
     pin = apiPost(requests_session,'/get/pin',{
     'serial':str(card.serial)
     })
-    #pin != False and
-    if "card_status" in pin:
-      # card data request succeeded
-      # process the data
-      if pin['card_status'] == 'Card Enrolled' and 'cid' in pin:
-        print(pin['card_status'])
-        toWSThread.put(pin['card_status'])
-        challenge = apiPost(requests_session,'/get/citizen_challenge',{
-          'cid':pin['cid'],
-          'serial':card.serial
-        })
-        if challenge != False and 'challenge' in challenge:
-          print('got a challenge: '+challenge)
-      elif pin['card_status'] == 'Default Pin' and 'cid' in pin:
-        print(pin['card_status'])
-        toWSThread.put(pin['card_status'])
-        pin['pin'] = default_pin
-      elif pin['card_status'] == 'Card Not Enrolled':
-        print(pin['card_status'])
-        toWSThread.put(pin['card_status'])
+    if pin != False:
+      if "card_status" in pin:
+        # card data request succeeded
+        # process the data
+        if pin['card_status'] == 'Card Enrolled' and 'cid' in pin:
+          print(pin['card_status'])
+          await toWSThread.put(pin['card_status'])
+          challenge = apiPost(requests_session,'/get/citizen_challenge',{
+            'cid':pin['cid'],
+            'serial':card.serial
+          })
+          if challenge != False and 'challenge' in challenge:
+            print('got a challenge: '+challenge)
+        elif pin['card_status'] == 'Default Pin' and 'cid' in pin:
+          print(pin['card_status'])
+          await toWSThread.put(pin['card_status'])
+          pin['pin'] = default_pin
+        elif pin['card_status'] == 'Card Not Enrolled':
+          print(pin['card_status'])
+          await toWSThread.put(pin['card_status'])
+        else:
+          print('Some other error occured while attempting to get card pin data')
       else:
+        # card request did not complete successfully
         print('Some other error occured while attempting to get card pin data')
-    else:
-      # card request did not complete successfully
-      print('Some other error occured while attempting to get card pin data')
-        
+          
     #if fromWSThread.not_empty:
-    #  print(fromWSThread.get())
+    #  print(await fromWSThread.get())
     sleep(10)
     quit()
 
@@ -274,4 +279,4 @@ def main():
     sleep(backoff)
 
 if (__name__ == "__main__"):
-  main()
+  asyncio.run(main())
