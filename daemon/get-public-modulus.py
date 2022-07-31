@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # https://pkcs11wrap.sourceforge.io/api/samples.html#dump-all-the-token-objects
 from __future__ import print_function
-
+from Crypto.PublicKey.RSA import construct
 from PyKCS11 import *
-import binascii
+import binascii,base64
 try:
   from os import scandir
 except ImportError:
@@ -63,11 +63,24 @@ keyID = (4,)
 # find public key and print modulus
 pubKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY)])[0]
 modulus = session.getAttributeValue(pubKey, [PyKCS11.CKA_MODULUS])[0]
+n = int(binascii.hexlify(bytearray(modulus)),16)
+#.decode(sys.stdout.encoding)
+#e = hex(int.from_bytes(session.getAttributeValue(pubKey,[PyKCS11.CKA_PUBLIC_EXPONENT])[0],byteorder='big'))
+e = int.from_bytes(session.getAttributeValue(pubKey,[PyKCS11.CKA_PUBLIC_EXPONENT])[0],byteorder='big')
+p = base64.b64encode(construct((n,e)).exportKey()).decode(sys.stdout.encoding)
+
+#print('modulus: '+str(modulus))
+#print('exponent: '+str(e))
+#print('mod bits: '+str(session.getAttributeValue(pubKey,[PyKCS11.CKA_MODULUS_BITS])[0]))
 #print("\nmodulus: {}".format(binascii.hexlify(bytearray(modulus))))
 #print("\nmod_len: "+str(len(modulus)))
 #print("\nserial#: "+pkcs11.getTokenInfo(slot).serialNumber)
 
-print("\nINSERT INTO `citizen` (`card`,`public_key`,`display_name`) values ('"+str(pkcs11.getTokenInfo(slot).serialNumber)+"','"+str(binascii.hexlify(bytearray(modulus)).decode(sys.stdout.encoding))+"','');\n")
+# Converting the modulus to something useable was possible with help from the following posts:
+#  https://stackoverflow.com/questions/40094108/i-have-a-rsa-public-key-exponent-and-modulus-how-can-i-encrypt-a-string-using-p
+#  https://stackoverflow.com/questions/18039401/how-can-i-transform-between-the-two-styles-of-public-key-format-one-begin-rsa
+
+print("\nINSERT INTO `citizen` (`card`,`public_key`,`display_name`) values ('"+str(pkcs11.getTokenInfo(slot).serialNumber)+"','"+str(p)+"','');\n")
 
 # logout
 session.logout()

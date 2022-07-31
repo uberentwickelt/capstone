@@ -1,14 +1,13 @@
-import base64
-from card import *
-from classes import *
-from machine_code import *
-from time import sleep
+
 from browser import launch
-#from queue import Queue
-import binascii, json, os, requests, threading, sys
-import asyncio,websockets
-import functools
-from asyncio import Queue
+from card import *
+from machine_code import *
+from sockets import threadWS
+from time import sleep
+from timing import Backoff
+from queue import Queue
+import asyncio, base64, binascii, functools, json, os, requests, sys, threading, websockets
+#from asyncio import Queue
 
 keyBits = 2048
 #confDir = '/etc/voted/'
@@ -29,13 +28,13 @@ def apiGet(session,uri,data):
   r = s.get(uri,headers=headers,json=data)
   if (r.status_code == 200):
     try:
-      return r.json()
+      return s,r.json()
     except requests.JSONDecodeError as e:
       if logLevel == DEBUG:
         print('JSON decode error: '+str(e))
         print('JSON Error on uri: '+str(uri))
-      return False
-  return False
+      return s,False
+  return s,False
 
 def apiPost(session,uri,data):
   uri=apiBase+uri
@@ -44,36 +43,35 @@ def apiPost(session,uri,data):
   r = s.post(uri,headers=headers,json=data)
   if (r.status_code == 200):
     try:
-      return r.json()
+      return s,r.json()
     except requests.JSONDecodeError as e:
       if logLevel >= DEBUG:
         print('JSON decode error: '+str(e))
         print('JSON Error on uri: '+str(uri))
-      return False
+      return s,False
   if (r.status_code == 500 and logLevel >= DEBUG):
     print('Error in request, check weblogs')
-  return False
+  return s,False
 
-def getSession(session,backoff,systemKey):
+def getSession(web_session,backoff,systemKey):
   public, private = systemKey["public"], systemKey["private"]
   pub = base64.b64encode(public).decode("utf-8")
-  get_challenge = apiPost(session,'/get/session',{
+  web_session, get_challenge = apiPost(web_session,'/get/session',{
     'type':'machine',
     'publicKey':pub
   })
   if (get_challenge != False):
     if "mid" in get_challenge and "display" in get_challenge and "challenge" in get_challenge:
       # Machine exists with login challenge
-      # sign challenge and send id,display,pubkey, and challenge signature
+      # Sign challenge and send id,display,pubkey, and challenge signature
       # Base64 encode the signature so it can be converted to a string and json serialized.
-      # Work will need to be done on the php side to base64 decode before validating the challenge
       signature = base64.b64encode(signMachineMessage(systemKey,get_challenge['challenge'])).decode('utf-8')
       if (signature != False):
         # Signature is valid/successful
         # Get the salt length of the signature to pass with our request
         # https://github.com/pyca/cryptography/issues/3008
         saltLength = padding.calculate_max_pss_salt_length(serialization.load_pem_public_key(public), hashes.SHA256())
-        get_session = apiPost(session,'/get/session',{
+        web_session,get_session = apiPost(web_session,'/get/session',{
           'type':'machine',
           'mid':get_challenge['mid'],
           'response':signature,
@@ -82,32 +80,32 @@ def getSession(session,backoff,systemKey):
         if (get_session != False):
           if "sid" in get_session and "mid" in get_session and "did" in get_session:
             # Got a valid session! Yay!
-            return get_session
+            return web_session,get_session
         wait_value = backoff.increment()
         print('Failed to get session. Waiting '+str(wait_value)+' seconds before trying again.')
         sleep(wait_value)
-        getSession(session,backoff,systemKey)
+        getSession(web_session,backoff,systemKey)
     elif "mid" in get_challenge and "display" in get_challenge:
       wait_value = backoff.increment()
       print('Machine Display ID ('+get_challenge["display"]+') not activated. Waiting '+str(wait_value)+' seconds before checking for activation again.')
       sleep(wait_value)
-      getSession(session,backoff,systemKey)
+      getSession(web_session,backoff,systemKey)
     else:
       wait_value = backoff.increment()
       print('Machine not found. Waiting '+str(wait_value)+' seconds before trying again.')
       sleep(wait_value)
-      getSession(session,backoff,systemKey)
+      getSession(web_session,backoff,systemKey)
   else:
     wait_value = backoff.increment()
     if (wait_value > backoff.maxBackoff):
       print('Attempts to get session exceeded. Returning False.')
-      return False
+      return web_session,False
     print('Failed to get initial phase. Waiting '+str(wait_value)+' seconds before trying again.')
     sleep(wait_value)
-    getSession(session,backoff,systemKey)
+    getSession(web_session,backoff,systemKey)
 
   print('Attempts to get session exceeded. Returning False.')
-  return False
+  return web_session,False
 
 def monitor_card(reader):
   print(reader)
@@ -115,26 +113,18 @@ def monitor_card(reader):
 def monitor_session():
   print("monitor_session")
 
-def threadWS(toWSThread,fromWSThread):
-  # Thank you ZachL: https://stackoverflow.com/a/72220058
-  try:
-    loop = asyncio.get_event_loop()
-  except RuntimeError as e:
-    if str(e).startswith('There is no current event loop in thread'):
-      l2 = asyncio.new_event_loop()
-      asyncio.set_event_loop(l2)
-      loop = asyncio.get_event_loop()
-    else:
-      raise
-  finally:
-    start_server = websockets.serve(Server(toWSThread,fromWSThread).handler,'localhost',1776)
-    #start_server = websockets.serve(
-    #  functools.partial(handler,fromMainThread=toWSThread,toMainThread=fromWSThread),
-    #  'localhost', 1776)
-    loop.run_until_complete(start_server)
-    loop.run_forever()
+def get_citizen_challenge(requests_session,card,pin):
+  requests_session,challenge = apiPost(requests_session,'/get/citizen_challenge',{
+    'cid':pin['cid'],
+    'serial':card.serial
+  })
+  if challenge != False and 'challenge' in challenge:
+    return requests_session,challenge
+  else:
+    return requests_session,False
 
-async def main():
+#async def main():
+def main():
   backoff = Backoff()
   requests_session = requests.session()
   while True:
@@ -144,8 +134,8 @@ async def main():
       sleep(backoff.increment())
       continue
     # Connect to api and get a session
-    session = getSession(requests_session,Backoff(),systemKey)
-    if (session == False):
+    requests_session,machine_session = getSession(requests_session,Backoff(),systemKey)
+    if (machine_session == False):
       sleep(backoff.increment())
       continue
     else:
@@ -158,7 +148,7 @@ async def main():
   thread_ws = threading.Thread(target=threadWS,args=(toWSThread,fromWSThread,),daemon=True)
   thread_ws.start()
   # Start web browser with login session
-  launch(uriBase+'/?sid='+session['sid']+'&mid='+session['mid'],kiosk)
+  launch(uriBase+'/?sid='+machine_session['sid']+'&mid='+machine_session['mid'],kiosk)
 
   #Setup PKCS environment
   setPKCSenv()
@@ -168,7 +158,7 @@ async def main():
   while readers is False:
     timeout = backoff.increment()
     print('No card reader found. Waiting '+str(timeout)+' seconds for a reader.')
-    await toWSThread.put('No Card Reader')
+    toWSThread.put('No Card Reader')
     sleep(timeout)
     readers = getReaders()
 
@@ -183,9 +173,9 @@ async def main():
     # Only wait 2 seconds between checks, not full backoff
     present = cardPresent(reader)
     if (present == False):
-      await toWSThread.put('No Card')
+      toWSThread.put('No Card')
       if not fromWSThread.empty:
-        print(await fromWSThread.get())
+        print(fromWSThread.get())
       print('No Card')
       sleep(2)
       continue
@@ -193,9 +183,9 @@ async def main():
     # If Card is not valid, restart loop:
     card = getCard(reader)
     if (card == False):
-      await toWSThread.put('Invalid Card')
+      toWSThread.put('Invalid Card')
       if not fromWSThread.empty:
-        print(await fromWSThread.get())
+        print(fromWSThread.get())
       sleep(backoff.increment())
       continue
   
@@ -204,47 +194,62 @@ async def main():
     default_pin = False
     if (card.label == 'PIV_II'):
       # Is likely YubiCo
-      default_pin = 123456
-      if (card.serial == 00000000):
-        await toWSThread.put('Card Not Initialized')
+      default_pin = "123456"
+      if (card.serial == "00000000"):
+        toWSThread.put('Card Not Initialized')
         print('Card Not Initializled')
         sleep(backoff.increment())
         continue
     elif card.label.startswith('PIVKey'):
       # Is Likely Smart Card
-      default_pin = 000000
+      default_pin = "000000"
 
     # Card is compatiable with the system (more or less)
     # Try to authenticate - Update web interface to show
     # That the card was inserted and authentication is
     # being attempted
     print('Card Compatible')
-    await toWSThread.put('Card Compatible')
+    toWSThread.put('Card Compatible')
+
+    print(card.serial)
     
     # Check to see if the card is enrolled in the database as a person
-    pin = apiPost(requests_session,'/get/pin',{
+    requests_session,pin = apiPost(requests_session,'/get/pin',{
     'serial':str(card.serial)
     })
     if pin != False:
       if "card_status" in pin:
         # card data request succeeded
         # process the data
-        if pin['card_status'] == 'Card Enrolled' and 'cid' in pin:
+        if (pin['card_status'] == 'Card Enrolled' or pin['card_status'] == 'Default Pin') and 'cid' in pin:
           print(pin['card_status'])
-          await toWSThread.put(pin['card_status'])
-          challenge = apiPost(requests_session,'/get/citizen_challenge',{
+          toWSThread.put(pin['card_status'])
+          if pin['card_status'] == 'Default Pin' and 'pin' not in pin:
+            pin['pin'] = default_pin
+          requests_session,challenge = apiPost(requests_session,'/get/citizen_challenge',{
             'cid':pin['cid'],
-            'serial':card.serial
+            'serial':str(card.serial)
           })
           if challenge != False and 'challenge' in challenge:
-            print('got a challenge: '+challenge)
-        elif pin['card_status'] == 'Default Pin' and 'cid' in pin:
-          print(pin['card_status'])
-          await toWSThread.put(pin['card_status'])
-          pin['pin'] = default_pin
+            print('got a challenge: '+str(challenge['challenge']))
+            print('pin is supposed to be: '+str(pin['pin']))
+            signature = signMessage(reader,pin['pin'],challenge['challenge'])
+            if signature != False and signature != 'CKF_PIN_INCORRECT' and signature != 'CKF_PIN_LOCKED' and signature != 'ERROR':
+              signature = base64.b64encode(signature).decode('utf-8')
+              print(str(signature))
+              requests_session,user_session = apiPost(requests_session,'/get/citizen_session',{
+                'cid':pin['cid'],
+                'serial':str(card.serial),
+                'signature':signature
+              })
+              if user_session != False:
+                print('Logged in as: '+user_session['user_session'])
+                toWSThread.put('Logged in as: '+user_session['user_session'])
+            else:
+              print('error getting signature')
         elif pin['card_status'] == 'Card Not Enrolled':
           print(pin['card_status'])
-          await toWSThread.put(pin['card_status'])
+          toWSThread.put(pin['card_status'])
         else:
           print('Some other error occured while attempting to get card pin data')
       else:
@@ -279,4 +284,5 @@ async def main():
     sleep(backoff)
 
 if (__name__ == "__main__"):
-  asyncio.run(main())
+  #asyncio.run(main())
+  main()

@@ -134,6 +134,33 @@ function display_table($sql,$where_params) {
   }
 }
 
+function get_citizen_challenge($cid) {
+  // get a new or existing citizen challenge
+  $cid = sanitize_input($cid);
+  $sql = 'SELECT get_citizen_challenge(uuid_to_bin(?)) AS challenge';
+  $r = get_sql($sql,array(array('s',$cid)));
+  if (!empty($r)) {
+    if ($r->num_rows === 1) {
+      return $r->fetch_assoc()['challenge'];
+    }
+  }
+  return false;
+}
+
+function get_citizen_publicKey($cid) {
+  // Get citizen public key from uuid
+  global $conn;
+  $cid = sanitize_input($cid);
+  $r = get_sql('select public_key from citizen where id = uuid_to_bin(?)',array(array('s',$cid)));
+  if (!empty($r)) {
+    if ($r->num_rows === 1) {
+      $row = $r->fetch_assoc();
+      return $row['public_key'];
+    }
+  }
+  return false;
+}
+
 function get_ip() {
   $ip = '';
   if (isset($_SERVER['HTTP_CLIENT_IP']))
@@ -252,6 +279,39 @@ function get_browser_session($bid) {
   }
   return false;
 }
+
+/*function get_citizen_session($mid) {
+  $uuid = get_uuid();
+  $ip = get_ip();
+  $mid = sanitize_input($mid);
+  $agent = get_user_agent();
+  $sql = 'SELECT bin_to_uuid(session.id) AS sid,bin_to_uuid(session.machine_id) AS mid,machine.friendly_id AS did FROM session JOIN machine ON machine.id = session.machine_id WHERE session.machine_id = uuid_to_bin(?) AND sysdate() < session.expire';
+  $r = get_sql($sql,array(array('s',$mid)));
+  if (!empty($r)) {
+    if ($r->num_rows === 1) {
+      return $r->fetch_assoc();
+    }
+    // Delete all sessions if there are more than one within the timeframe
+    if ($r->num_rows > 1) {
+      $s2 = 'DELETE FROM session WHERE machine_id = uuid_to_bin(?)';
+      $r2 = set_sql($sql,array(array('s',$mid)));
+      if ((bool) $r2) {
+        // Deleted all sessions for machine, call self to get a new session.
+        get_machine_session($mid);
+      }  
+    }
+  } else {
+    // Has zero rows or an error
+    $s2 = 'INSERT INTO session (id,machine_id,ip_address,user_agent) VALUES (uuid_to_bin(?),uuid_to_bin(?),?,?)';
+    $r2 = set_sql($s2,array(array('s',$uuid),array('s',$mid),array('s',$ip),array('s',$agent)));
+    if ((bool) $r2) {
+      // Inserted new session successfully, call self to get the session.
+      get_machine_session($mid);
+    }
+  }
+  return false;
+}
+*/
 
 function get_machine_session($mid) {
   $uuid = get_uuid();
@@ -452,6 +512,7 @@ function validate_session($type,$sid,$oid) {
 }
 
 function valid_session() {
+  // file_put_contents('phplog.txt',var_export($_SESSION,true),FILE_APPEND);
   if (isset($_SESSION['sid'],$_SESSION['uid'])) {
     // User Session
     $sid = sanitize_input($_SESSION['sid']);
@@ -468,6 +529,25 @@ function valid_session() {
     return validate_session('BROWSER',$sid,$bid);
   }
   return false;  
+}
+
+function verify_citizen_signature($cid,$response) {
+  $cid = sanitize_input($cid);
+  $response = sanitize_input($response);
+  $challenge = get_citizen_challenge($cid);
+  if (isset($challenge,$response)) {
+    $publicKey = get_citizen_publicKey($cid);
+    $publicKey = openssl_get_publickey(base64_decode($publicKey,true));    
+    if (isset($publicKey)) {
+      $ok = openssl_verify($challenge,base64_decode($response,true),$publicKey,OPENSSL_ALGO_SHA1);
+      if ($ok) {
+        error_log('session validated');
+        return true;
+      }
+    }
+  }
+  error_log('session validation failed');
+  return false;
 }
 
 function verify_machine_signature($mid,$response,$saltLength) {
