@@ -2,6 +2,8 @@ import binascii,base64,binascii,os,PyKCS11
 from Crypto.PublicKey.RSA import construct
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+import PyKCS11
+import struct
 from PyKCS11 import *
 try:
   from os import scandir
@@ -32,9 +34,14 @@ class Card:
     print("Max Pin: "+str(self.maxPin))
 
 def cardPresent(reader):
-  info = pkcs11.getSlotInfo(reader)
-  if info.flags & PyKCS11.CKF_TOKEN_PRESENT:
-    return True
+  try:
+    info = pkcs11.getSlotInfo(reader)
+    if info.flags & PyKCS11.CKF_TOKEN_PRESENT:
+      return True
+  except PyKCS11.PyKCS11Error as e:
+    if e == PyKCS11.CKR_DEVICE_ERROR:
+      print('Error loading card')
+      raise
   return False
 
 def getCard(reader):
@@ -130,31 +137,42 @@ def signMessage(slot,pin,message):
   # Might search without keyID
   # original waas (0x22,)
   #keyID = (4,)
-  toSign = binascii.hexlify(bytearray(message,'utf-8'))
+  message = binascii.hexlify(bytearray(message,'utf-8'))
+  print('challange in card signing: '+str(message))
+  print('challenge unhexlified: '+str(binascii.unhexlify(message)))
   #privKey = session.findObjects([(CKA_CLASS, CKO_PRIVATE_KEY), (CKA_ID, keyID)])[0]
   privKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY)])[0]
-  #mecha= Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None)
-  slength = get_card_salt_length(session)
-  ism = PyKCS11.Mechanism(mechanism=PyKCS11.RSA_PSS_Mechanism(
-    mecha=PyKCS11.CKM_SHA256_RSA_PKCS_PSS,
-    hashAlg=PyKCS11.CKM_SHA256,
-    mgf=PyKCS11.CKG_MGF1_SHA256,
-    sLen=slength))
-  signature = session.sign(key=privKey,data=binascii.unhexlify(toSign).encode('utf-8'),mecha=ism)
+  ism=Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None)
   
+  #ism=Mechanism(PyKCS11.CKM_SHA256_RSA_PKCS_PSS)
+  #slength = get_card_salt_length(session)
+  #saltBytes = bytes('222', 'utf-8')
+  #saltBytes = struct.pack('B',222)
+  saltBytes = b'222'
+  #ism = PyKCS11.Mechanism(mechanism=
+  #PyKCS11.RSA_PSS_Mechanism(
+  #  mecha=PyKCS11.CKM_SHA384_RSA_PKCS_PSS,
+  #  hashAlg=PyKCS11.CKM_SHA384,
+  #  mgf=PyKCS11.CKG_MGF1_SHA384,
+  #  sLen=padding.PSS.MAX_LENGTH)
+  #  )
+  #ism=PyKCS11.Mechanism(PyKCS11.RSA_PSS_Mechanism(PyKCS11.CKM_SHA384_RSA_PKCS_PSS,PyKCS11.CKM_SHA384,PyKCS11.CKG_MGF1_SHA384,sLen=saltBytes))
+  #session.sign(privKey, binascii.unhexlify(message), Mechanism(CKM_SHA1_RSA_PKCS, None))
+  signature = session.sign(key=privKey,data=binascii.unhexlify(message),mecha=ism)
+  
+  #if validateSignature(session,message,signature,ism):
+  return_val = binascii.hexlify(bytearray(signature))
+  #else:
+  #  return_val = 'Unable to validate signature'
   # logout
   session.logout()
   session.closeSession()
-  if validateSignature(session,message,signature,ism):
-    return binascii.hexlify(bytearray(signature))
-  else:
-    return 'Unable to validate signature'
+  return return_val
 
 def validateSignature(session,message,signature,ism):
-  message = binascii.hexlify(bytearray(message,'utf-8'))
-  pubKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY)])[0]  
-  result = session.verify(key=pubKey,data=binascii.unhexlify(message).encode('utf-8'),signature=signature,mecha=ism)
-  return result
+  #message = binascii.hexlify(bytearray(message,'utf-8'))
+  pubKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PUBLIC_KEY)])[0]
+  return session.verify(key=pubKey,data=message,signature=signature,mecha=ism)
 
 def get_card_salt_length(session) -> bytes:
   # find public key and print modulus

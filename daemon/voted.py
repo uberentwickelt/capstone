@@ -12,7 +12,7 @@ import asyncio, base64, binascii, functools, json, os, requests, sys, threading,
 keyBits = 2048
 #confDir = '/etc/voted/'
 confDir = './'
-uriBase = "https://vote.ack3r.net"
+uriBase = "https://{Your Hostname Here}"
 apiBase = uriBase + "/api"
 kiosk   = False
 # Log Levels:
@@ -234,17 +234,19 @@ def main():
             print('got a challenge: '+str(challenge['challenge']))
             print('pin is supposed to be: '+str(pin['pin']))
             signature = signMessage(reader,pin['pin'],challenge['challenge'])
-            if signature != False and signature != 'CKF_PIN_INCORRECT' and signature != 'CKF_PIN_LOCKED' and signature != 'ERROR':
+            #print(str(signature))
+            if signature != False and signature != 'CKF_PIN_INCORRECT' and signature != 'CKF_PIN_LOCKED' and signature != 'ERROR' and type(signature) == bytes:
               signature = base64.b64encode(signature).decode('utf-8')
-              print(str(signature))
-              requests_session,user_session = apiPost(requests_session,'/get/citizen_session',{
-                'cid':pin['cid'],
-                'serial':str(card.serial),
-                'signature':signature
-              })
-              if user_session != False:
-                print('Logged in as: '+user_session['user_session'])
-                toWSThread.put('Logged in as: '+user_session['user_session'])
+              #print(str(signature))
+              #requests_session,user_session = apiPost(requests_session,'/get/citizen_session',{
+              #  'cid':pin['cid'],
+              #  'serial':str(card.serial),
+              #  'signature':str(signature)
+              #})
+              #if user_session != False:
+              #  print('Logged in as: '+user_session['user_session'])
+              #  toWSThread.put('Logged in as: '+user_session['user_session'])
+              print('signature success, logged in as: '+str(card.serial))
             else:
               print('error getting signature')
         elif pin['card_status'] == 'Card Not Enrolled':
@@ -258,7 +260,9 @@ def main():
           
     #if fromWSThread.not_empty:
     #  print(await fromWSThread.get())
-    sleep(10)
+    toWSThread.put('Logged in: '+str(card.serial))
+    while True:
+      sleep(10)
     quit()
 
     # Valid session has been established with api

@@ -536,10 +536,18 @@ function verify_citizen_signature($cid,$response) {
   $response = sanitize_input($response);
   $challenge = get_citizen_challenge($cid);
   if (isset($challenge,$response)) {
-    $publicKey = get_citizen_publicKey($cid);
-    $publicKey = openssl_get_publickey(base64_decode($publicKey,true));    
+    $publicKey = get_citizen_publicKey($cid); 
     if (isset($publicKey)) {
-      $ok = openssl_verify($challenge,base64_decode($response,true),$publicKey,OPENSSL_ALGO_SHA1);
+      $publicKey = openssl_get_publickey(base64_decode($publicKey,true));  
+      $publicKeyDetails = openssl_pkey_get_details($publicKey)['rsa'];  
+      $pubkey = PublicKeyLoader::load([
+        'e' => new BigInteger(bin2hex($publicKeyDetails['e']),16),
+        'n' => new BigInteger(bin2hex($publicKeyDetails['n']),16),
+      ]);
+      error_log($challenge);
+      // $ok = $pubkey->withhash('sha384')->withMGFHash('sha384')-withSaltLength('222')->verify($challenge,base64_decode($response,true));
+      $ok = $pubkey->withHash('sha1')->verify($challenge,base64_decode($response,true));
+      // $ok = openssl_verify($challenge,base64_decode($response,true),$publicKey,OPENSSL_ALGO_SHA1);
       if ($ok) {
         error_log('session validated');
         return true;

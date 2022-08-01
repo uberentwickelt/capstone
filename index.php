@@ -1,5 +1,13 @@
 <meta id="meta-title" name="title" content="Voting Booth">
-<div id="sign-in" class="container vote-vertical-upper-center">
+<div id="connect-in-waiting" class="container vote-vertical-upper-center">
+  <div class="row h-100 translate-middle text-center mx-auto my-auto d-flex justify-content-center">
+    <div clas="col my-auto translate-middle">
+      <img class="mb-4" src="/img/vote-logo.png" alt="" width="144" height="144">
+      <h1 class="h3 mb-3 fw-normal">Waiting for WebSocket Connection</h1>
+    </div>
+  </div>
+</div>
+<div id="sign-in" class="container vote-vertical-upper-center d-none">
   <div class="row h-100 translate-middle text-center mx-auto my-auto d-flex justify-content-center">
     <div clas="col my-auto translate-middle">
       <img class="mb-4" src="/img/vote-logo.png" alt="" width="144" height="144">
@@ -32,6 +40,7 @@ if (isset($_SESSION['sid'],$_SESSION['bid'],$_SESSION['did'])) {
   if (validate_session('BROWSER',$sid,$mid)) {
     // Logged in
     ?>
+    <!--
 <div id="logged-in" class="container d-none">
   </div>
 <div class="container">
@@ -43,7 +52,7 @@ if (isset($_SESSION['sid'],$_SESSION['bid'],$_SESSION['did'])) {
     <div id="sid-data" class="col align-items-center float-left text-center"><?php print(sanitize_input($_SESSION['sid']));?></div>
     <div id="mid-data" class="col align-items-center float-right text-center"><?php print(sanitize_input($_SESSION['bid']));?></div>
   </div>
-</div>
+</div>-->
     <?php
   } else {
     // Not logged in

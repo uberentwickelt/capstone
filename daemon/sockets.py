@@ -87,6 +87,7 @@ class Server:
   async def register(self, ws:WebSocketServerProtocol) -> None:
     if ws not in self.clients:
       self.clients.add(ws)
+      await ws.send('Connected')
       print('added client')
 
   async def unregister(self, ws:WebSocketServerProtocol) -> None:

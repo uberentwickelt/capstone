@@ -57,24 +57,21 @@ CREATE TABLE IF NOT EXISTS `race_result` (
 );
 
 CREATE TABLE IF NOT EXISTS `question` (
-  `id` binary(16) NOT NULL,
-  `display` int NOT NULL,
-  `name` varchar(10) NOT NULL,
-  `election_id` binary(16) NOT NULL,
-  `question_id` binary(16) NOT NULL,
-  `answer` varchar(10) NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `id_UNIQUE` (`id`)
+	`id` binary(16) NOT NULL,
+    `order` int NOT NULL,
+    `question` varchar(255) NOT NULL,
+    `answer` varchar(255) NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `id_UNIQUE` (`id`)
 );
 
 CREATE TABLE IF NOT EXISTS `question_result` (
-  `id` binary(16) NOT NULL,
-  `question_id` binary(16) NOT NULL,
-  `user_id` binary(16) NOT NULL,
-  `answer` varchar(255) NOT NULL,
-  `create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `id_UNIQUE` (`id`)
+    `citizen` binary(16) NOT NULL,
+    `order` int NOT NULL,
+    `question` varchar(255) NOT NULL,
+    `answer` varchar(255) NOT NULL,
+    `signature` varchar(5000) NULL,
+    UNIQUE KEY `result_UNIQUE` (`citizen`,`question`)
 );
 
 CREATE TABLE IF NOT EXISTS `login` (
@@ -248,17 +245,6 @@ CREATE TRIGGER `question_BEFORE_INSERT` BEFORE INSERT ON `question` FOR EACH ROW
 	IF new.`id` IS NULL THEN
       SET new.`id` = uuid_to_bin(uuid());
 	END If;
-    IF new.`display` IS NULL THEN
-		SET new.`display` = (SELECT COALESCE(max(`display`),0) FROM `question` WHERE `election_id` = new.`election_id`) + 1;
-	ELSE
-		SET new.`display` = (SELECT
-			CASE WHEN (SELECT count(`display`) FROM `question` WHERE `election_id` = new.`election_id` AND `display` = new.`display`) = 0 THEN
-				new.`display`
-			ELSE
-				(SELECT max(`display`) FROM `question` WHERE `election_id` = new.`election_id`) + 1
-			END
-		);
-	END IF;
 END;;
 
 CREATE TRIGGER `vote_BEFORE_INSERT` BEFORE INSERT ON `vote` FOR EACH ROW BEGIN

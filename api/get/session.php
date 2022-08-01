@@ -36,6 +36,9 @@ if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
         if (verify_machine_signature($mid,$response,$saltLength)) {
           $session = get_machine_session($mid);
           if ((bool) $session) {
+            $_SESSION['sid'] = $session['sid'];
+            $_SESSION['mid'] = $session['mid'];
+            $_SESSION['did'] = $session['did'];
             $return_val = $session;
           }
         }
