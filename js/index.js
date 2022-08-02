@@ -1,13 +1,3 @@
-function getMeta(metaName) {
-  const metas = document.getElementsByTagName('meta');
-  for (let i = 0; i < metas.length; i++) {
-    if (metas[i].getAttribute('name') === metaName) {
-      return metas[i].getAttribute('content');
-    }
-  }
-  return '';
-}
-
 $(document).ready((async () => {
   const socket = new WebSocket('ws://localhost:1776');
   socket.addEventListener('open', function (event) {
