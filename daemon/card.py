@@ -138,8 +138,8 @@ def signMessage(slot,pin,message):
   # original waas (0x22,)
   #keyID = (4,)
   message = binascii.hexlify(bytearray(message,'utf-8'))
-  print('challange in card signing: '+str(message))
-  print('challenge unhexlified: '+str(binascii.unhexlify(message)))
+  ##print('challange in card signing: '+str(message))
+  ##print('challenge unhexlified: '+str(binascii.unhexlify(message)))
   #privKey = session.findObjects([(CKA_CLASS, CKO_PRIVATE_KEY), (CKA_ID, keyID)])[0]
   privKey = session.findObjects([(PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY)])[0]
   ism=Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None)

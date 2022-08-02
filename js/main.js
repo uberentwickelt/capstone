@@ -8,6 +8,16 @@ function getMeta(metaName) {
   return '';
 }
 
+// https://www.codegrepper.com/code-examples/javascript/javascript+check+if+json+object+is+valid
+function isJson(str) {
+  try {
+      JSON.parse(str);
+  } catch (e) {
+      return false;
+  }
+  return true;
+}
+
 function checkIfExists(src, callback) {
   let xhr = new XMLHttpRequest();
   xhr.onreadystatechange = () => {

@@ -1,9 +1,14 @@
-$(document).ready((async () => {
+function wsReconnect() {
+  setTimeout(function() {
+    wsConnect();
+  }, 1000);
+}
+
+function wsConnect() {
   const socket = new WebSocket('ws://localhost:1776');
   socket.addEventListener('open', function (event) {
       socket.send('Connection Established');
   });
-
   socket.addEventListener('message', function (event) {
     if (isJson(event.data)) {
       console.log(event.data);
@@ -51,13 +56,25 @@ $(document).ready((async () => {
       }
     }
   });
-
+  socket.addEventListener('close', function (event) {
+    console.log('Socket closed. Reconnecting.');
+    wsReconnect();
+  });
+  socket.addEventListener('error', function (event) {
+    console.log('Socket error encountered. Reconnecting.');
+    wsReconnect();
+  });
   $('#testWS').on('click',()=>{
     console.log('test clicked thing');
     socket.send('Test message from client');
   });
+}
 
+$(document).ready((async () => { 
+  wsConnect();
+  /*
   const contactServer = () => {
     socket.send("Initialize");
   }
+  */
 })());

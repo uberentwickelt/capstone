@@ -59,11 +59,11 @@ class Server:
       *[consumer_task, producer_task],
       return_exceptions=True
     )
-    #if type(pending) != ConnectionClosedError:
-    #  for task in pending:
-    #    task.cancel()
-    #    await self.unregister(ws)
-    #    raise
+    if type(pending) != ConnectionClosedError:
+      for task in pending:
+        task.cancel()
+        await self.unregister(ws)
+        raise
     if type(pending) == ConnectionClosedError or type(done) == ConnectionClosedError:
       await self.unregister(ws)
     if type(done) != ConnectionClosedError:

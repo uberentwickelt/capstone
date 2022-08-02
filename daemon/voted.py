@@ -12,7 +12,7 @@ import asyncio, base64, binascii, functools, json, os, requests, sys, threading,
 keyBits = 2048
 #confDir = '/etc/voted/'
 confDir = './'
-uriBase = "https://{Your Hostname Here}"
+uriBase = "https://vote.ack3r.net"
 apiBase = uriBase + "/api"
 kiosk   = False
 # Log Levels:
@@ -222,7 +222,7 @@ def main():
         # card data request succeeded
         # process the data
         if (pin['card_status'] == 'Card Enrolled' or pin['card_status'] == 'Default Pin') and 'cid' in pin:
-          print(pin['card_status'])
+          #print(pin['card_status'])
           toWSThread.put(pin['card_status'])
           if pin['card_status'] == 'Default Pin' and 'pin' not in pin:
             pin['pin'] = default_pin
@@ -232,7 +232,7 @@ def main():
           })
           if challenge != False and 'challenge' in challenge:
             print('got a challenge: '+str(challenge['challenge']))
-            print('pin is supposed to be: '+str(pin['pin']))
+            #print('pin is supposed to be: '+str(pin['pin']))
             signature = signMessage(reader,pin['pin'],challenge['challenge'])
             #print(str(signature))
             if signature != False and signature != 'CKF_PIN_INCORRECT' and signature != 'CKF_PIN_LOCKED' and signature != 'ERROR' and type(signature) == bytes:
@@ -260,32 +260,60 @@ def main():
           
     #if fromWSThread.not_empty:
     #  print(await fromWSThread.get())
+    # Tell the browser we are logged in
     toWSThread.put('Logged in: '+str(card.serial))
-    while True:
-      sleep(10)
-    quit()
 
-    # Valid session has been established with api
-    # Card is present in found reader
-    # Card class is valid
+    cid = str(pin['cid'])
+    # Get the number of questions on the ballot
+    response = []
+    while 'max_questions' not in response:
+      requests_session,response = apiPost(requests_session,'/get/max_questions',{})
+      print('waiting on getting total questions')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
+      sleep(1)
+    max_questions = int(response['max_questions'])
+    print('max questions: '+str(max_questions))
+    # Get the total number of questions answered by the end user
+    requests_session,response = apiPost(requests_session,'/get/user_responses',{'cid':cid,'type':'total'})
+    # Wait until the total number of questions answered by the end user equals the total number of questions
+    while int(response[0]['total_questions']) != max_questions:
+      requests_session,response = apiPost(requests_session,'/get/user_responses',{'cid':cid,'type':'total'})
+      print('waiting on getting all responses')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
+      sleep(1)
+    # Sign each answer
+    requests_session,response = apiPost(requests_session,'/get/user_responses',{'cid':cid,'type':'responses'})
 
-    # Start a thread to monitor if the card gets ejected
-    thread_monitor_card = threading.Thread(target=monitor_card, args=(reader,))
-    thread_monitor_card.start()
-    # Start a thread to monitor if the session expires
-    thread_monitor_session = threading.Thread(target=monitor_session)
-    thread_monitor_session.start()
-    # Start a thread to handle using the card
-    thread_handle_card = threading.Thread(target=handle_card)
-    thread_handle_card.start()
-
-
-    # Wait for threads to finish before continuing
-    thread_monitor_card.join()
-    thread_monitor_session.join()
-    thread_handle_card.join()
-
-    sleep(backoff)
+    for obj in response:
+      message_to_sign = str(obj['order'])+' | '+str(obj['question'])+' | '+str(obj['answer'])
+      signature = signMessage(reader,pin['pin'],message_to_sign)
+      signature = base64.b64encode(signature).decode('utf-8')
+      requests_session,response = apiPost(requests_session,'/set/sign_vote',{
+        'cid':cid,
+        'signature':str(signature),
+        'order':obj['order'],
+        'question':obj['question']
+      })
+      if 'result' in response:
+        if response['result'] == 'True':
+          print('Successfully added signature')
+          toWSThread.put(obj['question'])
+        else:
+          print('Failed to add signature')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
+    
+    # Wait till the card is removed, then log the user out
+    while cardPresent(reader):
+      print('Waiting to log user out')
+      if not fromWSThread.empty:
+        print(fromWSThread.get())
+      sleep(2)
+    
+    # Send web ui logout message after card has been removed
+    toWSThread.put('Logout')
 
 if (__name__ == "__main__"):
   #asyncio.run(main())
