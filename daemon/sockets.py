@@ -16,18 +16,23 @@ class Server:
     self.fromMainThread = fromMainThread
     self.toMainThread   = toMainThread 
 
-  #async def consumer(self,message) -> None:
-  #  #if message != False:
-  #  print('message from browser: '+str(message))
-  #  self.toMainThread.put(message)
+  async def consumer(self,message) -> None:
+    print('message from browser: '+str(message))
+    self.toMainThread.put(message)
 
   async def consumer_handler(self,ws) -> None:
     while True:
-      #if ws in self.clients:
-      print('ws in clients')
-      async for message in ws:
-        print('message from browser: '+str(message))
-        self.toMainThread.put(message)
+      if ws in self.clients:
+        async for message in ws:
+          await self.consumer(message)
+      #
+    #while True:
+    #  if ws in self.clients:
+    #    async for message in await ws.recv():
+    #      await self.consumer(message)
+        #async for message in ws:
+        #print('message from browser: '+str(message))
+        #self.toMainThread.put(message)
           #await self.consumer(message)
           #print('message from browser: '+str(message))
           #self.toMainThread.put(message)
