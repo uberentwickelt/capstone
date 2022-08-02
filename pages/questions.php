@@ -1,3 +1,4 @@
+<meta id="meta-title" name="title" content="Voting Booth Polling">
 <?php
 include_once($_SERVER['DOCUMENT_ROOT'].'/api/api_config.php');
 //if (sanitize_input($_SERVER["REQUEST_METHOD"]) === "POST") {
